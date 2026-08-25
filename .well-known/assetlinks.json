@@ -1,1 +1,8 @@
-
+[{
+      "relation": ["delegate_permission/common.handle_all_urls"],
+      "target": {
+        "namespace": "android_app",
+        "package_name": "io.github.valasindosinardana_mc.twa",
+        "sha256_cert_fingerprints": ["98:0A:90:44:EA:10:11:E3:6F:28:9D:51:C4:DB:30:B2:6E:4F:AB:3B:97:22:60:D7:DB:A8:C4:87:D3:72:30:AB"]
+      }
+    }]
