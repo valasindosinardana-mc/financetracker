@@ -4,13 +4,6 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
 <title>Finance Tracker</title>
-<link rel="manifest" href="manifest.json" />
-<link rel="icon" href="icon-192.png" />
-<link rel="apple-touch-icon" href="icon-192.png" />
-<meta name="theme-color" content="#0a0a0c" />
-<meta name="apple-mobile-web-app-capable" content="yes" />
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-<meta name="apple-mobile-web-app-title" content="Finance" />
 <style>
   :root{
     --bg:#F2F2F7; --card:#FFFFFF; --text:#1D1D1F; --sub:#8E8E93; --faint:#C7C7CC; --sep:#E5E5EA;
@@ -158,6 +151,7 @@ const ICONS = {
   trendUp: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 7 13.5 15.5 8.5 10.5 2 17"/><path d="M16 7h6v6"/></svg>`,
   trash: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6"/></svg>`,
   alert: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v5M12 16h.01"/></svg>`,
+  download: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0-4-4m4 4 4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>`,
 };
 
 /* ---------- financial logic ---------- */
@@ -364,6 +358,75 @@ function roundRectTop(ctx,x,y,w,h,r){
   ctx.closePath();
 }
 
+function getAvailableMonths(){
+  const set = new Set(transactions.map(t => t.date.slice(0,7)));
+  set.add(todayStr().slice(0,7));
+  return [...set].sort((a,b)=> a<b?1:-1);
+}
+function csvEscape(v){
+  const s = String(v==null?"":v);
+  return /[",\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s;
+}
+function exportMonthCSV(monthKey){
+  const assetMap = Object.fromEntries(assets.map(a=>[a.id,a]));
+  const rows = transactions
+    .filter(t => t.date.slice(0,7)===monthKey)
+    .sort((a,b)=> a.date<b.date?-1:a.date>b.date?1:0);
+  let income=0, expense=0;
+  const lines = [["Date","Type","Category","Account","Amount","Note"].map(csvEscape).join(",")];
+  rows.forEach(t=>{
+    if(t.type==="income") income+=t.amount; else expense+=t.amount;
+    lines.push([t.date, t.type==="income"?"Income":"Expense", t.category, assetMap[t.accountId]?assetMap[t.accountId].name:"", t.amount, t.note||""].map(csvEscape).join(","));
+  });
+  lines.push("");
+  lines.push(["Total Income","","","",income,""].map(csvEscape).join(","));
+  lines.push(["Total Expense","","","",expense,""].map(csvEscape).join(","));
+  lines.push(["Net","","","",income-expense,""].map(csvEscape).join(","));
+
+  const blob = new Blob([lines.join("\n")], { type:"text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = `cashflow-${monthKey}.csv`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+function openExportSheet(){
+  const months = getAvailableMonths();
+  let selected = months[0];
+  renderExportSheet(selected, months);
+  document.getElementById("sheetOverlay").style.display = "flex";
+}
+function renderExportSheet(selected, months){
+  const rows = transactions.filter(t => t.date.slice(0,7)===selected);
+  let income=0, expense=0;
+  rows.forEach(t => t.type==="income" ? income+=t.amount : expense+=t.amount);
+  const sheet = document.getElementById("sheet");
+  sheet.innerHTML = `
+    <div class="sheet-handle"><div></div></div>
+    <div class="sheet-head"><button id="cancelBtn">Cancel</button><h2>Export Month</h2><div style="width:40px;"></div></div>
+    <div class="sheet-body">
+      <div class="form-group">
+        <div class="form-row" style="border-bottom:none;">
+          <label>Month</label>
+          <select id="exportMonth">
+            ${months.map(m => `<option value="${m}" ${m===selected?"selected":""}>${monthLabel(m)} ${m.slice(0,4)}</option>`).join("")}
+          </select>
+        </div>
+      </div>
+      <div class="grid3">
+        <div class="card" style="padding:12px;"><div class="subtle">In</div><div class="bignum" style="font-size:15px;color:var(--green)">${formatRpShort(income)}</div></div>
+        <div class="card" style="padding:12px;"><div class="subtle">Out</div><div class="bignum" style="font-size:15px;color:var(--red)">${formatRpShort(expense)}</div></div>
+        <div class="card" style="padding:12px;"><div class="subtle">Net</div><div class="bignum" style="font-size:15px;">${formatRpShort(income-expense)}</div></div>
+      </div>
+      <p class="subtle" style="padding:0 4px;margin:0 0 16px;">${rows.length} transaction${rows.length===1?"":"s"} will be exported as a CSV file (opens in Excel, Sheets, Numbers).</p>
+      <button class="save-btn" id="doExportBtn">Export CSV</button>
+    </div>
+  `;
+  document.getElementById("cancelBtn").onclick = closeSheet;
+  document.getElementById("exportMonth").onchange = e => renderExportSheet(e.target.value, months);
+  document.getElementById("doExportBtn").onclick = () => { exportMonthCSV(document.getElementById("exportMonth").value); closeSheet(); };
+}
+
 /* ---------- render: cashflow ---------- */
 function renderCashflow(){
   const filtered = getFilteredTx();
@@ -376,7 +439,12 @@ function renderCashflow(){
   const assetMap = Object.fromEntries(assets.map(a=>[a.id,a]));
 
   const periods = [["day","Daily"],["month","Monthly"],["year","Yearly"],["all","All"]];
-  let html = `<div class="segmented">${periods.map(([v,l])=>`<button class="${period===v?'active':''}" data-period="${v}">${l}</button>`).join("")}</div>`;
+  let html = `<div style="display:flex;justify-content:flex-end;margin-bottom:8px;">
+    <button id="exportBtn" style="display:flex;align-items:center;gap:5px;background:var(--card);border:none;padding:7px 12px;border-radius:10px;color:var(--blue);font-size:13px;font-weight:500;font-family:inherit;box-shadow:0 1px 2px rgba(0,0,0,.04),0 2px 8px rgba(0,0,0,.04);">
+      <span style="width:14px;height:14px;display:flex;">${ICONS.download}</span> Export
+    </button>
+  </div>`;
+  html += `<div class="segmented">${periods.map(([v,l])=>`<button class="${period===v?'active':''}" data-period="${v}">${l}</button>`).join("")}</div>`;
 
   html += `<div class="grid3">
     <div class="card" style="padding:12px;"><div class="subtle">In</div><div class="bignum" style="font-size:15px;color:var(--green)">${formatRpShort(income)}</div></div>
@@ -451,6 +519,8 @@ function renderAssets(){
 
 /* ---------- content event delegation ---------- */
 function attachContentHandlers(){
+  const exportBtn = document.getElementById("exportBtn");
+  if(exportBtn) exportBtn.onclick = openExportSheet;
   document.querySelectorAll("[data-period]").forEach(btn=>{
     btn.onclick = () => { period = btn.getAttribute("data-period"); render(); };
   });
