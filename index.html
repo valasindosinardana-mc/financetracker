@@ -86,6 +86,7 @@
   .type-toggle button{flex:1;padding:10px 4px;border:none;border-radius:9px;font-weight:500;font-size:14px;font-family:inherit;background:transparent;color:var(--sub);}
   .type-toggle button.active-expense{background:var(--redBg);color:var(--red);}
   .type-toggle button.active-income{background:var(--greenBg);color:var(--green);}
+  .type-toggle button.active-transfer{background:var(--blueBg);color:var(--blue);}
   canvas{width:100%;display:block;}
   .cat-header{display:flex;justify-content:space-between;padding:0 4px;margin-bottom:6px;}
   .cat-header span:first-child{font-size:12px;font-weight:600;color:var(--sub);}
@@ -108,6 +109,7 @@
   <nav id="tabbar"></nav>
 </div>
 <div id="sheetOverlay" class="sheet-overlay"><div id="sheet" class="sheet"></div></div>
+<input type="file" id="restoreFileInput" accept="application/json,.json" style="display:none">
 
 <script>
 /* ---------- storage ---------- */
@@ -161,7 +163,14 @@ function onlyDigits(s){ return (s||"").replace(/\D/g,""); }
 function dateLabel(dateStr){ try{ return new Date(dateStr+"T00:00:00").toLocaleDateString("en-US",{weekday:"long",day:"numeric",month:"long",year:"numeric"}); }catch(e){ return dateStr; } }
 function monthLabel(key){ const [y,m]=key.split("-"); return new Date(Number(y),Number(m)-1,1).toLocaleDateString("en-US",{month:"short"}); }
 function last6MonthKeys(){ const arr=[]; const now=new Date(); for(let i=5;i>=0;i--){ const d=new Date(now.getFullYear(), now.getMonth()-i, 1); arr.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`); } return arr; }
-function flashError(msg){ const b=document.getElementById("errorBanner"); b.textContent = msg; b.style.display="flex"; clearTimeout(flashError._t); flashError._t=setTimeout(()=>{ b.style.display="none"; }, 3000); }
+function flashError(msg, kind){
+  const b=document.getElementById("errorBanner");
+  b.textContent = msg;
+  b.style.background = kind==="success" ? "var(--greenBg)" : "var(--redBg)";
+  b.style.color = kind==="success" ? "var(--green)" : "var(--red)";
+  b.style.display="flex";
+  clearTimeout(flashError._t); flashError._t=setTimeout(()=>{ b.style.display="none"; }, 3000);
+}
 
 /* ---------- icons (inline svg) ---------- */
 const ICONS = {
@@ -176,6 +185,7 @@ const ICONS = {
   download: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0-4-4m4 4 4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>`,
   eye: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7Z"/><circle cx="12" cy="12" r="3"/></svg>`,
   eyeOff: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19M6.6 6.6C3.4 8.5 1 12 1 12s4 8 11 8a9.3 9.3 0 0 0 5.4-1.6"/><path d="M14.12 14.12A3 3 0 1 1 9.88 9.88"/><path d="M1 1l22 22"/></svg>`,
+  transfer: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m17 2 4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>`,
 };
 
 /* ---------- financial logic ---------- */
@@ -183,33 +193,58 @@ function adjustAsset(list, accountId, delta){
   if(!accountId || !delta) return list;
   return list.map(a => a.id===accountId ? {...a, amount: a.amount+delta} : a);
 }
+function reverseEffect(list, tx){
+  if(!tx) return list;
+  if(tx.type==="transfer"){
+    let next = adjustAsset(list, tx.fromAccountId, tx.amount);
+    next = adjustAsset(next, tx.toAccountId, -tx.amount);
+    return next;
+  }
+  if(tx.accountId){
+    const delta = tx.type==="income" ? tx.amount : -tx.amount;
+    return adjustAsset(list, tx.accountId, -delta);
+  }
+  return list;
+}
+function applyEffect(list, tx){
+  if(tx.type==="transfer"){
+    let next = adjustAsset(list, tx.fromAccountId, -tx.amount);
+    next = adjustAsset(next, tx.toAccountId, tx.amount);
+    return next;
+  }
+  if(tx.accountId){
+    const delta = tx.type==="income" ? tx.amount : -tx.amount;
+    return adjustAsset(list, tx.accountId, delta);
+  }
+  return list;
+}
 function upsertTx(draft){
   const amt = Math.abs(Number(draft.amount))||0;
-  if(!draft.date || !draft.category || amt<=0 || !draft.accountId){
-    flashError("Please fill in date, category, amount, and select an account.");
-    return;
+  if(draft.type==="transfer"){
+    if(!draft.date || !draft.fromAccountId || !draft.toAccountId || draft.fromAccountId===draft.toAccountId || amt<=0){
+      flashError("Please fill in date, amount, and two different accounts.");
+      return;
+    }
+  } else {
+    if(!draft.date || !draft.category || amt<=0 || !draft.accountId){
+      flashError("Please fill in date, category, amount, and select an account.");
+      return;
+    }
   }
-  let nextAssets = assets;
-  if(editingTx && editingTx.accountId){
-    const oldDelta = editingTx.type==="income" ? editingTx.amount : -editingTx.amount;
-    nextAssets = adjustAsset(nextAssets, editingTx.accountId, -oldDelta);
-  }
-  if(draft.accountId){
-    const newDelta = draft.type==="income" ? amt : -amt;
-    nextAssets = adjustAsset(nextAssets, draft.accountId, newDelta);
-  }
+  let nextAssets = reverseEffect(assets, editingTx);
+  const finalTxBase = draft.type==="transfer"
+    ? { type:"transfer", date:draft.date, fromAccountId:draft.fromAccountId, toAccountId:draft.toAccountId, amount:amt, note:(draft.note||"").trim() }
+    : { type:draft.type, date:draft.date, category:(draft.category||"").trim(), amount:amt, note:(draft.note||"").trim(), accountId:draft.accountId||null };
+  nextAssets = applyEffect(nextAssets, finalTxBase);
   if(nextAssets !== assets) saveAssets(nextAssets);
-  const finalTx = {...draft, amount:amt, accountId: draft.accountId||null};
-  if(editingTx) saveTx(transactions.map(t => t.id===editingTx.id ? {...finalTx, id:editingTx.id} : t));
-  else saveTx([...transactions, {...finalTx, id:uid()}]);
+  const finalTx = { ...finalTxBase, id: editingTx ? editingTx.id : uid() };
+  if(editingTx) saveTx(transactions.map(t => t.id===editingTx.id ? finalTx : t));
+  else saveTx([...transactions, finalTx]);
   closeSheet(); render();
 }
 function deleteTx(id){
   const tx = transactions.find(t => t.id===id);
-  if(tx && tx.accountId){
-    const delta = tx.type==="income" ? tx.amount : -tx.amount;
-    saveAssets(adjustAsset(assets, tx.accountId, -delta));
-  }
+  if(tx) saveAssets(reverseEffect(assets, tx));
   saveTx(transactions.filter(t => t.id!==id));
   render();
 }
@@ -251,14 +286,14 @@ function getAssetTotals(){
 function getMonthNet(){
   const curMonth = todayStr().slice(0,7);
   let income=0, expense=0;
-  transactions.forEach(t=>{ if(t.date.slice(0,7)===curMonth){ if(t.type==="income") income+=t.amount; else expense+=t.amount; } });
+  transactions.forEach(t=>{ if(t.date.slice(0,7)===curMonth){ if(t.type==="income") income+=t.amount; else if(t.type==="expense") expense+=t.amount; } });
   return income-expense;
 }
 function getMonthChartData(){
   const keys = last6MonthKeys();
   return keys.map(k=>{
     let income=0, expense=0;
-    transactions.forEach(t=>{ if(t.date.slice(0,7)===k){ if(t.type==="income") income+=t.amount; else expense+=t.amount; } });
+    transactions.forEach(t=>{ if(t.date.slice(0,7)===k){ if(t.type==="income") income+=t.amount; else if(t.type==="expense") expense+=t.amount; } });
     return { month: monthLabel(k), income, expense };
   });
 }
@@ -403,6 +438,42 @@ function fullMonthName(monthKey){
   const [y,m] = monthKey.split("-");
   return new Date(Number(y),Number(m)-1,1).toLocaleDateString("en-US",{month:"long"});
 }
+function exportBackupJSON(){
+  const payload = { app:"finance-tracker", version:1, exportedAt:new Date().toISOString(), transactions, assets };
+  const blob = new Blob([JSON.stringify(payload,null,2)], { type:"application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = `finance-backup-${todayStr()}.json`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  flashError("Backup downloaded.", "success");
+}
+function triggerRestoreFile(){ document.getElementById("restoreFileInput").click(); }
+function handleRestoreFile(e){
+  const file = e.target.files[0];
+  e.target.value = "";
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    let data;
+    try{ data = JSON.parse(reader.result); }
+    catch(err){ flashError("This file isn't valid JSON."); return; }
+    if(!data || !Array.isArray(data.transactions) || !Array.isArray(data.assets)){
+      flashError("This doesn't look like a valid backup file.");
+      return;
+    }
+    const when = data.exportedAt ? new Date(data.exportedAt).toLocaleString() : "an unknown date";
+    const ok = confirm(`This will replace ALL current data with the backup from ${when} (${data.transactions.length} transactions, ${data.assets.length} accounts). This can't be undone. Continue?`);
+    if(!ok) return;
+    saveTx(data.transactions);
+    saveAssets(data.assets);
+    render();
+    flashError("Backup restored.", "success");
+  };
+  reader.onerror = () => flashError("Couldn't read that file.");
+  reader.readAsText(file);
+}
+
 function exportMonthCSV(monthKey){
   const assetMap = Object.fromEntries(assets.map(a=>[a.id,a]));
   const rows = transactions
@@ -412,12 +483,20 @@ function exportMonthCSV(monthKey){
   const lines = [`DAILY CASHFLOW - ${fullMonthName(monthKey)} ${monthKey.slice(0,4)}`, ""];
   lines.push(["Date","Description","Bank","Credit","Debit"].map(csvEscape).join(","));
   rows.forEach(t=>{
+    const dateStr = formatDayMonth(t.date);
+    if(t.type==="transfer"){
+      const from = assetMap[t.fromAccountId], to = assetMap[t.toAccountId];
+      income += t.amount; expense += t.amount;
+      lines.push([dateStr, `Transfer to ${to?to.name:"?"}`, from?from.name:"", "", t.amount].map(csvEscape).join(","));
+      lines.push([dateStr, `Transfer from ${from?from.name:"?"}`, to?to.name:"", t.amount, ""].map(csvEscape).join(","));
+      return;
+    }
     if(t.type==="income") income+=t.amount; else expense+=t.amount;
     const desc = t.note || t.category;
     const bank = assetMap[t.accountId] ? assetMap[t.accountId].name : "";
     const credit = t.type==="income" ? t.amount : "";
     const debit = t.type==="expense" ? t.amount : "";
-    lines.push([formatDayMonth(t.date), desc, bank, credit, debit].map(csvEscape).join(","));
+    lines.push([dateStr, desc, bank, credit, debit].map(csvEscape).join(","));
   });
   lines.push("");
   lines.push(["","","Total",income,expense].map(csvEscape).join(","));
@@ -471,7 +550,7 @@ function renderExportSheet(selected, months){
 function renderCashflow(){
   const filtered = getFilteredTx();
   let income=0, expense=0;
-  filtered.forEach(t=> t.type==="income" ? income+=t.amount : expense+=t.amount);
+  filtered.forEach(t=>{ if(t.type==="income") income+=t.amount; else if(t.type==="expense") expense+=t.amount; });
   const net = income-expense;
   const grouped = {};
   filtered.forEach(t=>{ (grouped[t.date]=grouped[t.date]||[]).push(t); });
@@ -498,18 +577,33 @@ function renderCashflow(){
     dateKeys.forEach(date=>{
       html += `<div class="date-label">${dateLabel(date)}</div><div class="row-group">`;
       grouped[date].forEach(t=>{
-        const acc = assetMap[t.accountId];
-        const subParts = [acc?acc.name:null, t.note].filter(Boolean).join(" · ");
+        let icon, iconBg, iconColor, title, subParts, amountStr, amountColor;
+        if(t.type==="transfer"){
+          const from = assetMap[t.fromAccountId], to = assetMap[t.toAccountId];
+          icon = ICONS.transfer; iconBg = "var(--blueBg)"; iconColor = "var(--blue)";
+          title = "Transfer";
+          subParts = [`${from?from.name:"?"} → ${to?to.name:"?"}`, t.note].filter(Boolean).join(" · ");
+          amountStr = formatRp(t.amount); amountColor = "var(--blue)";
+        } else {
+          const acc = assetMap[t.accountId];
+          icon = t.type==='income'?ICONS.up:ICONS.down;
+          iconBg = t.type==='income'?'var(--greenBg)':'var(--redBg)';
+          iconColor = t.type==='income'?'var(--green)':'var(--red)';
+          title = t.category;
+          subParts = [acc?acc.name:null, t.note].filter(Boolean).join(" · ");
+          amountStr = (t.type==='income'?'+':'-')+formatRp(t.amount);
+          amountColor = iconColor;
+        }
         html += `<div class="tx-row">
           <button class="tx-left" data-edit-tx="${t.id}">
-            <span class="tx-icon" style="background:${t.type==='income'?'var(--greenBg)':'var(--redBg)'};color:${t.type==='income'?'var(--green)':'var(--red)'}">${t.type==='income'?ICONS.up:ICONS.down}</span>
+            <span class="tx-icon" style="background:${iconBg};color:${iconColor}">${icon}</span>
             <span style="min-width:0;">
-              <div class="row-title">${esc(t.category)}</div>
+              <div class="row-title">${esc(title)}</div>
               ${subParts?`<div class="row-sub">${esc(subParts)}</div>`:""}
             </span>
           </button>
           <div class="row-right">
-            <span class="row-amount" style="color:${t.type==='income'?'var(--green)':'var(--red)'}">${t.type==='income'?'+':'-'}${formatRp(t.amount)}</span>
+            <span class="row-amount" style="color:${amountColor}">${amountStr}</span>
             <button class="del-btn" data-del-tx="${t.id}" style="background:${confirmDeleteId===t.id?'var(--redBg)':'transparent'}"><span style="color:${confirmDeleteId===t.id?'var(--red)':'var(--faint)'}">${ICONS.trash}</span></button>
           </div>
         </div>`;
@@ -554,6 +648,19 @@ function renderAssets(){
     });
     html += `</div>`;
   });
+
+  html += `<div class="card" style="margin-top:4px;">
+    <div style="font-size:15px;font-weight:600;margin-bottom:4px;">Backup & Restore</div>
+    <p class="subtle" style="margin:0 0 12px;">Save a full copy of all your transactions and accounts, or restore from a previous backup.</p>
+    <div style="display:flex;gap:8px;">
+      <button id="exportBackupBtn" style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;padding:11px 8px;border-radius:12px;border:none;background:var(--blueBg);color:var(--blue);font-size:14px;font-weight:600;font-family:inherit;">
+        <span style="width:15px;height:15px;display:flex;">${ICONS.download}</span> Backup
+      </button>
+      <button id="restoreBackupBtn" style="flex:1;padding:11px 8px;border-radius:12px;border:none;background:var(--sep);color:var(--text);font-size:14px;font-weight:600;font-family:inherit;">
+        Restore
+      </button>
+    </div>
+  </div>`;
   return html;
 }
 
@@ -561,6 +668,10 @@ function renderAssets(){
 function attachContentHandlers(){
   const exportBtn = document.getElementById("exportBtn");
   if(exportBtn) exportBtn.onclick = openExportSheet;
+  const exportBackupBtn = document.getElementById("exportBackupBtn");
+  if(exportBackupBtn) exportBackupBtn.onclick = exportBackupJSON;
+  const restoreBackupBtn = document.getElementById("restoreBackupBtn");
+  if(restoreBackupBtn) restoreBackupBtn.onclick = triggerRestoreFile;
   document.querySelectorAll("[data-period]").forEach(btn=>{
     btn.onclick = () => { period = btn.getAttribute("data-period"); render(); };
   });
@@ -586,7 +697,12 @@ function closeSheet(){
 function openTxSheet(tx){
   editingTx = tx || null;
   const type0 = tx?.type || "expense";
-  const state = { type:type0, date: tx?.date||todayStr(), category: tx?.category||"", amount: tx?tString(tx.amount):"", note: tx?.note||"", accountId: tx?.accountId||"" };
+  const state = {
+    type:type0, date: tx?.date||todayStr(), category: tx?.category||"",
+    amount: tx?tString(tx.amount):"", note: tx?.note||"",
+    accountId: tx?.accountId||"",
+    fromAccountId: tx?.fromAccountId||"", toAccountId: tx?.toAccountId||"",
+  };
   renderTxSheet(state);
   document.getElementById("sheetOverlay").style.display = "flex";
 }
@@ -595,26 +711,34 @@ function tString(n){ return n?String(n):""; }
 function renderTxSheet(state){
   const sortedAssets = [...assets].sort((a,b)=> a.category===b.category ? a.name.localeCompare(b.name) : (a.category==="Bank"?-1:1));
   const selected = sortedAssets.find(a=>a.id===state.accountId);
+  const isTransfer = state.type==="transfer";
   const sheet = document.getElementById("sheet");
-  sheet.innerHTML = `
-    <div class="sheet-handle"><div></div></div>
-    <div class="sheet-head"><button id="cancelBtn">Cancel</button><h2>${editingTx?"Edit Transaction":"New Transaction"}</h2><div style="width:40px;"></div></div>
-    <div class="sheet-body">
-      <div class="type-toggle">
-        <button id="btnExpense" class="${state.type==='expense'?'active-expense':''}">Expense</button>
-        <button id="btnIncome" class="${state.type==='income'?'active-income':''}">Income</button>
-      </div>
+
+  let accountFieldsHtml;
+  if(isTransfer){
+    const fromOptions = sortedAssets.map(a=>`<option value="${a.id}" ${a.id===state.fromAccountId?"selected":""}>${esc(a.name)} (${a.category})</option>`).join("");
+    const toOptions = sortedAssets.filter(a=>a.id!==state.fromAccountId).map(a=>`<option value="${a.id}" ${a.id===state.toAccountId?"selected":""}>${esc(a.name)} (${a.category})</option>`).join("");
+    accountFieldsHtml = `
       <div class="form-group">
-        <div class="form-row"><label>Date</label><input type="date" id="fDate" value="${state.date}"></div>
-        <div class="form-row"><label>Category</label>
-          <select id="fCategory">
-            <option value="" ${!state.category?"selected":""} disabled>Select category</option>
-            ${TX_CATEGORIES[state.type].map(c=>`<option value="${c}" ${c===state.category?"selected":""}>${c}</option>`).join("")}
+        <div class="form-row"><label>From</label>
+          <select id="fFromAccount">
+            <option value="" ${!state.fromAccountId?"selected":""} disabled>Select account</option>
+            ${fromOptions}
           </select>
         </div>
-        <div class="form-row"><label>Amount</label><input type="text" inputmode="numeric" id="fAmount" placeholder="0" value="${formatThousands(state.amount)}"></div>
-        <div class="form-row" style="border-bottom:none;"><label>Note</label><input type="text" id="fNote" placeholder="Optional" value="${esc(state.note)}"></div>
+        <div class="form-row" style="border-bottom:none;"><label>To</label>
+          <select id="fToAccount">
+            <option value="" ${!state.toAccountId?"selected":""} disabled>Select account</option>
+            ${toOptions}
+          </select>
+        </div>
       </div>
+      ${sortedAssets.length<2
+        ? `<p class="hint warn">You need at least 2 accounts in the Accounts tab to make a transfer.</p>`
+        : `<p class="hint" id="acctHint"></p>`}
+    `;
+  } else {
+    accountFieldsHtml = `
       <div class="form-group">
         <div class="form-row" style="border-bottom:none;">
           <label>Account</label>
@@ -627,19 +751,55 @@ function renderTxSheet(state){
       ${sortedAssets.length===0
         ? `<p class="hint warn">Add an account in the Accounts tab first — a transaction must be linked to one.</p>`
         : (selected ? `<p class="hint" id="acctHint">The ${esc(selected.name)} balance will automatically ${state.type==='income'?'increase':'decrease'} by this amount.</p>` : `<p class="hint" id="acctHint"></p>`)}
+    `;
+  }
+
+  sheet.innerHTML = `
+    <div class="sheet-handle"><div></div></div>
+    <div class="sheet-head"><button id="cancelBtn">Cancel</button><h2>${editingTx?"Edit Transaction":"New Transaction"}</h2><div style="width:40px;"></div></div>
+    <div class="sheet-body">
+      <div class="type-toggle">
+        <button id="btnExpense" class="${state.type==='expense'?'active-expense':''}">Expense</button>
+        <button id="btnIncome" class="${state.type==='income'?'active-income':''}">Income</button>
+        <button id="btnTransfer" class="${state.type==='transfer'?'active-transfer':''}">Transfer</button>
+      </div>
+      <div class="form-group">
+        <div class="form-row"><label>Date</label><input type="date" id="fDate" value="${state.date}"></div>
+        ${isTransfer ? "" : `
+        <div class="form-row"><label>Category</label>
+          <select id="fCategory">
+            <option value="" ${!state.category?"selected":""} disabled>Select category</option>
+            ${TX_CATEGORIES[state.type].map(c=>`<option value="${c}" ${c===state.category?"selected":""}>${c}</option>`).join("")}
+          </select>
+        </div>`}
+        <div class="form-row"><label>Amount</label><input type="text" inputmode="numeric" id="fAmount" placeholder="0" value="${formatThousands(state.amount)}"></div>
+        <div class="form-row" style="border-bottom:none;"><label>Note</label><input type="text" id="fNote" placeholder="Optional" value="${esc(state.note)}"></div>
+      </div>
+      ${accountFieldsHtml}
       <button class="save-btn" id="saveTxBtn">Save</button>
     </div>
   `;
   document.getElementById("cancelBtn").onclick = closeSheet;
   document.getElementById("btnExpense").onclick = () => { state.type="expense"; state.category=""; renderTxSheet(state); };
   document.getElementById("btnIncome").onclick = () => { state.type="income"; state.category=""; renderTxSheet(state); };
+  document.getElementById("btnTransfer").onclick = () => { state.type="transfer"; renderTxSheet(state); };
   document.getElementById("fDate").oninput = e => state.date = e.target.value;
-  document.getElementById("fCategory").onchange = e => state.category = e.target.value;
   document.getElementById("fNote").oninput = e => state.note = e.target.value;
   const amountEl = document.getElementById("fAmount");
-  amountEl.oninput = e => { state.amount = onlyDigits(e.target.value); const pos=e.target.value.length; e.target.value = formatThousands(state.amount); };
-  document.getElementById("fAccount").onchange = e => { state.accountId = e.target.value; renderTxSheet(state); };
-  document.getElementById("saveTxBtn").onclick = () => upsertTx({ id: editingTx?editingTx.id:undefined, type:state.type, date:state.date, category:state.category.trim(), amount:state.amount, note:state.note.trim(), accountId: state.accountId||null });
+  amountEl.oninput = e => { state.amount = onlyDigits(e.target.value); e.target.value = formatThousands(state.amount); };
+  if(isTransfer){
+    document.getElementById("fFromAccount").onchange = e => { state.fromAccountId = e.target.value; if(state.toAccountId===state.fromAccountId) state.toAccountId=""; renderTxSheet(state); };
+    document.getElementById("fToAccount").onchange = e => { state.toAccountId = e.target.value; renderTxSheet(state); };
+  } else {
+    document.getElementById("fCategory").onchange = e => state.category = e.target.value;
+    document.getElementById("fAccount").onchange = e => { state.accountId = e.target.value; renderTxSheet(state); };
+  }
+  document.getElementById("saveTxBtn").onclick = () => upsertTx({
+    id: editingTx?editingTx.id:undefined, type:state.type, date:state.date,
+    category:state.category, amount:state.amount, note:state.note,
+    accountId: state.accountId||null,
+    fromAccountId: state.fromAccountId||null, toAccountId: state.toAccountId||null,
+  });
 }
 
 function openAssetSheet(asset){
@@ -675,6 +835,7 @@ function renderAssetSheet(state){
 }
 
 /* ---------- boot ---------- */
+document.getElementById("restoreFileInput").addEventListener("change", handleRestoreFile);
 window.onerror = function(msg, src, line, col, err){
   document.getElementById("content").innerHTML =
     `<div class="card" style="margin-top:16px;"><div style="font-weight:600;margin-bottom:6px;">Something went wrong</div><div class="subtle" style="word-break:break-word;">${esc(msg)} (line ${line})</div></div>`;
