@@ -4,15 +4,30 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
 <title>Finance Tracker</title>
+<link rel="manifest" href="manifest.json" />
+<link rel="icon" href="icon-192.png" />
+<link rel="apple-touch-icon" href="icon-180.png" />
+<meta name="theme-color" content="#0a0a0c" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Finance" />
 <style>
   :root{
     --bg:#F2F2F7; --card:#FFFFFF; --text:#1D1D1F; --sub:#8E8E93; --faint:#C7C7CC; --sep:#E5E5EA;
     --blue:#007AFF; --blueBg:#E8F1FF; --green:#34C759; --greenBg:#E7F9EC; --red:#FF3B30; --redBg:#FFEBEA;
     --orange:#FF9500; --orangeBg:#FFF2E0; --purple:#AF52DE; --purpleBg:#F6EBFC;
     --teal:#30B0C7; --tealBg:#E5F6F9; --pink:#FF2D55; --pinkBg:#FFE7EC; --gray:#8E8E93; --grayBg:#EDEDF2;
+    --tabbar-bg:rgba(255,255,255,.94);
+  }
+  html.dark{
+    --bg:#000000; --card:#1C1C1E; --text:#F2F2F7; --sub:#98989D; --faint:#48484A; --sep:#38383A;
+    --blue:#0A84FF; --blueBg:#132A44; --green:#30D158; --greenBg:#132A1B; --red:#FF453A; --redBg:#3A1210;
+    --orange:#FF9F0A; --orangeBg:#3A2705; --purple:#BF5AF2; --purpleBg:#2B1233;
+    --teal:#40C8E0; --tealBg:#0E2A30; --pink:#FF375F; --pinkBg:#330E17; --gray:#98989D; --grayBg:#242426;
+    --tabbar-bg:rgba(28,28,30,.92);
   }
   *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
-  html,body{margin:0;padding:0;background:var(--bg);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:var(--text);}
+  html,body{margin:0;padding:0;background:var(--bg);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:var(--text);transition:background-color .2s ease;}
   #app{max-width:480px;margin:0 auto;min-height:100vh;display:flex;flex-direction:column;position:relative;}
   header{padding:28px 20px 12px;}
   header h1{font-size:28px;font-weight:700;letter-spacing:-0.4px;margin:0;}
@@ -21,6 +36,7 @@
   main{flex:1;padding:0 16px 110px;overflow-y:auto;}
   .error-banner{margin:0 16px 8px;padding:10px 12px;border-radius:12px;background:var(--redBg);color:var(--red);font-size:14px;display:flex;gap:8px;align-items:center;}
   .card{background:var(--card);border-radius:16px;padding:16px;box-shadow:0 1px 2px rgba(0,0,0,.04),0 2px 8px rgba(0,0,0,.04);margin-bottom:12px;}
+  html.dark .card{box-shadow:0 0 0 1px rgba(255,255,255,.06);}
   .card.flat{padding:0;}
   .hero{border-radius:24px;padding:20px;background:linear-gradient(135deg,#232326,#0a0a0c);color:#fff;box-shadow:0 8px 24px rgba(0,0,0,.18);margin-bottom:12px;position:relative;overflow:hidden;}
   .hero .glow{position:absolute;width:220px;height:220px;right:-80px;top:-100px;background:radial-gradient(circle,rgba(0,122,255,.25),transparent 70%);border-radius:50%;}
@@ -52,7 +68,7 @@
   .empty{text-align:center;padding:56px 20px;color:var(--sub);}
   .empty p{margin:2px 0;font-size:14px;}
   .fab{position:fixed;right:max(20px, calc(50% - 210px));bottom:calc(84px + env(safe-area-inset-bottom,0px));width:56px;height:56px;border-radius:50%;background:var(--blue);color:#fff;border:none;font-size:28px;box-shadow:0 4px 14px rgba(0,122,255,.4);display:none;align-items:center;justify-content:center;z-index:30;}
-  #tabbar{position:fixed;left:50%;transform:translateX(-50%);bottom:0;width:100%;max-width:480px;display:flex;background:rgba(255,255,255,.94);border-top:.5px solid var(--sep);padding-bottom:env(safe-area-inset-bottom,10px);backdrop-filter:blur(10px);}
+  #tabbar{position:fixed;left:50%;transform:translateX(-50%);bottom:0;width:100%;max-width:480px;display:flex;background:var(--tabbar-bg);border-top:.5px solid var(--sep);padding-bottom:env(safe-area-inset-bottom,10px);backdrop-filter:blur(10px);transition:background-color .2s ease;}
   .tab-btn{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;padding:10px 0 8px;background:none;border:none;font-family:inherit;color:var(--faint);}
   .tab-btn svg{width:22px;height:22px;}
   .tab-btn span{font-size:10.5px;font-weight:500;}
@@ -101,7 +117,10 @@
 <div id="app">
   <header style="display:flex;align-items:center;justify-content:space-between;">
     <h1 id="pageTitle">Overview</h1>
-    <button id="hideBalanceBtn" class="eye-btn"></button>
+    <div style="display:flex;gap:8px;">
+      <button id="darkModeBtn" class="eye-btn"></button>
+      <button id="hideBalanceBtn" class="eye-btn"></button>
+    </div>
   </header>
   <div id="errorBanner" class="error-banner" style="display:none"></div>
   <main id="content"></main>
@@ -133,6 +152,19 @@ function toggleHideBalance(){
   try{ localStorage.setItem("ft_hideBalance", hideBalance ? "1" : "0"); }catch(e){}
   render();
 }
+let darkMode = false;
+try{
+  const stored = localStorage.getItem("ft_darkMode");
+  darkMode = stored !== null ? stored === "1" : !!(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+}catch(e){}
+function applyDarkMode(){ document.documentElement.classList.toggle("dark", darkMode); }
+function toggleDarkMode(){
+  darkMode = !darkMode;
+  try{ localStorage.setItem("ft_darkMode", darkMode ? "1" : "0"); }catch(e){}
+  applyDarkMode();
+  render();
+}
+applyDarkMode();
 let confirmTimer = null;
 let editingTx = null;
 let editingAsset = null;
@@ -186,6 +218,8 @@ const ICONS = {
   eye: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7Z"/><circle cx="12" cy="12" r="3"/></svg>`,
   eyeOff: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19M6.6 6.6C3.4 8.5 1 12 1 12s4 8 11 8a9.3 9.3 0 0 0 5.4-1.6"/><path d="M14.12 14.12A3 3 0 1 1 9.88 9.88"/><path d="M1 1l22 22"/></svg>`,
   transfer: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m17 2 4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>`,
+  sun: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2.5M12 19.5V22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M2 12h2.5M19.5 12H22M4.9 19.1l1.8-1.8M17.3 6.7l1.8-1.8"/></svg>`,
+  moon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8Z"/></svg>`,
 };
 
 /* ---------- financial logic ---------- */
@@ -305,6 +339,10 @@ function render(){
   eyeBtn.innerHTML = hideBalance ? ICONS.eyeOff : ICONS.eye;
   eyeBtn.style.color = hideBalance ? "var(--sub)" : "var(--text)";
   eyeBtn.onclick = toggleHideBalance;
+  const darkBtn = document.getElementById("darkModeBtn");
+  darkBtn.innerHTML = darkMode ? ICONS.sun : ICONS.moon;
+  darkBtn.style.color = "var(--text)";
+  darkBtn.onclick = toggleDarkMode;
   renderTabbar();
   const fab = document.getElementById("fab");
   fab.style.display = (tab==="cashflow"||tab==="assets") ? "flex" : "none";
@@ -387,6 +425,8 @@ function drawChart(){
   const canvas = document.getElementById("chartCanvas");
   if(!canvas) return;
   const data = getMonthChartData();
+  const cv = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  const colGreen = cv("--green"), colRed = cv("--red"), colSub = cv("--sub");
   const dpr = window.devicePixelRatio||1;
   const w = canvas.clientWidth || 300, h = 160;
   canvas.width = w*dpr; canvas.height = h*dpr;
@@ -395,17 +435,17 @@ function drawChart(){
   const max = Math.max(1, ...data.map(d=>Math.max(d.income,d.expense)));
   const padBottom = 20, padTop = 6, chartH = h-padBottom-padTop;
   const groupW = w/data.length;
-  ctx.font = "11px -apple-system,sans-serif"; ctx.fillStyle = "#8E8E93"; ctx.textAlign="center";
+  ctx.font = "11px -apple-system,sans-serif"; ctx.fillStyle = colSub; ctx.textAlign="center";
   data.forEach((d,i)=>{
     const cx = groupW*i + groupW/2;
     const bw = Math.min(14, groupW*0.22);
     const gap = 4;
     const incH = (d.income/max)*chartH, expH = (d.expense/max)*chartH;
-    ctx.fillStyle = "#34C759";
+    ctx.fillStyle = colGreen;
     ctx.beginPath(); roundRectTop(ctx, cx-bw-gap/2, padTop+chartH-incH, bw, incH, 3); ctx.fill();
-    ctx.fillStyle = "#FF3B30";
+    ctx.fillStyle = colRed;
     ctx.beginPath(); roundRectTop(ctx, cx+gap/2, padTop+chartH-expH, bw, expH, 3); ctx.fill();
-    ctx.fillStyle = "#8E8E93";
+    ctx.fillStyle = colSub;
     ctx.fillText(d.month, cx, h-4);
   });
 }
