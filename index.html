@@ -337,7 +337,7 @@ function getFilteredTx(){
   if(period==="day") list = list.filter(t => t.date===today);
   else if(period==="month") list = list.filter(t => t.date.slice(0,7)===curMonth);
   else if(period==="year") list = list.filter(t => t.date.slice(0,4)===curYear);
-  return [...list].sort((a,b)=> a.date<b.date?1:a.date>b.date?-1:0);
+  return [...list].reverse().sort((a,b)=> a.date<b.date?1:a.date>b.date?-1:0);
 }
 function getAssetTotals(){
   const byCat = {}; ASSET_CATEGORIES.forEach(c=> byCat[c]=0);
@@ -496,7 +496,7 @@ function getAvailableMonths(){
 }
 function csvEscape(v){
   const s = String(v==null?"":v);
-  return /[",\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s;
+  return /[";\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s;
 }
 function formatDayMonth(dateStr){
   const d = new Date(dateStr+"T00:00:00");
@@ -549,14 +549,14 @@ function exportMonthCSV(monthKey){
     .sort((a,b)=> a.date<b.date?-1:a.date>b.date?1:0);
   let income=0, expense=0;
   const lines = [`DAILY CASHFLOW - ${fullMonthName(monthKey)} ${monthKey.slice(0,4)}`, ""];
-  lines.push(["Date","Description","Bank","Credit","Debit"].map(csvEscape).join(","));
+  lines.push(["Date","Description","Bank","Credit","Debit"].map(csvEscape).join(";"));
   rows.forEach(t=>{
     const dateStr = formatDayMonth(t.date);
     if(t.type==="transfer"){
       const from = assetMap[t.fromAccountId], to = assetMap[t.toAccountId];
       income += t.amount; expense += t.amount;
-      lines.push([dateStr, `Transfer to ${to?to.name:"?"}`, from?from.name:"", "", t.amount].map(csvEscape).join(","));
-      lines.push([dateStr, `Transfer from ${from?from.name:"?"}`, to?to.name:"", t.amount, ""].map(csvEscape).join(","));
+      lines.push([dateStr, `Transfer to ${to?to.name:"?"}`, from?from.name:"", "", t.amount].map(csvEscape).join(";"));
+      lines.push([dateStr, `Transfer from ${from?from.name:"?"}`, to?to.name:"", t.amount, ""].map(csvEscape).join(";"));
       return;
     }
     if(t.type==="income") income+=t.amount; else expense+=t.amount;
@@ -564,11 +564,11 @@ function exportMonthCSV(monthKey){
     const bank = assetMap[t.accountId] ? assetMap[t.accountId].name : "";
     const credit = t.type==="income" ? t.amount : "";
     const debit = t.type==="expense" ? t.amount : "";
-    lines.push([dateStr, desc, bank, credit, debit].map(csvEscape).join(","));
+    lines.push([dateStr, desc, bank, credit, debit].map(csvEscape).join(";"));
   });
   lines.push("");
-  lines.push(["","","Total",income,expense].map(csvEscape).join(","));
-  lines.push(["","","Net","",income-expense].map(csvEscape).join(","));
+  lines.push(["","","Total",income,expense].map(csvEscape).join(";"));
+  lines.push(["","","Net","",income-expense].map(csvEscape).join(";"));
 
   const blob = new Blob([lines.join("\n")], { type:"text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
