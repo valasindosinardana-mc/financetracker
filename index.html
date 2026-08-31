@@ -18,6 +18,8 @@
     --orange:#FF9500; --orangeBg:#FFF2E0; --purple:#AF52DE; --purpleBg:#F6EBFC;
     --teal:#30B0C7; --tealBg:#E5F6F9; --pink:#FF2D55; --pinkBg:#FFE7EC; --gray:#8E8E93; --grayBg:#EDEDF2;
     --tabbar-bg:rgba(255,255,255,.94);
+    --picker-bg:rgba(255,255,255,.72);
+    --sep-translucent:rgba(60,60,67,.18);
   }
   html.dark{
     --bg:#000000; --card:#1C1C1E; --text:#F2F2F7; --sub:#98989D; --faint:#48484A; --sep:#38383A;
@@ -25,6 +27,8 @@
     --orange:#FF9F0A; --orangeBg:#3A2705; --purple:#BF5AF2; --purpleBg:#2B1233;
     --teal:#40C8E0; --tealBg:#0E2A30; --pink:#FF375F; --pinkBg:#330E17; --gray:#98989D; --grayBg:#242426;
     --tabbar-bg:rgba(28,28,30,.92);
+    --picker-bg:rgba(40,40,42,.72);
+    --sep-translucent:rgba(255,255,255,.14);
   }
   *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
   html,body{margin:0;padding:0;background:var(--bg);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:var(--text);transition:background-color .2s ease;}
@@ -99,17 +103,23 @@
   .picker-row label{font-size:15px;color:var(--text);flex-shrink:0;pointer-events:none;}
   .picker-row .picker-value{display:flex;align-items:center;gap:5px;font-size:15px;color:var(--sub);min-width:0;}
   .picker-row .picker-value span:first-child{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-  .picker-row .picker-value svg{width:13px;height:13px;flex-shrink:0;transition:transform .15s ease;}
+  .picker-row .picker-value svg{width:13px;height:13px;flex-shrink:0;transition:transform .18s ease;}
   .picker-row.open .picker-value svg{transform:rotate(180deg);}
-  .picker-list{background:var(--bg);}
-  .picker-option{display:block;width:100%;text-align:left;padding:12px 16px;font-size:15px;color:var(--text);background:none;border:none;border-bottom:.5px solid var(--sep);font-family:inherit;display:flex;align-items:center;justify-content:space-between;}
+  .picker-scrim{position:fixed;inset:0;z-index:90;background:rgba(0,0,0,0);}
+  .picker-popover{
+    position:fixed;z-index:100;overflow-y:auto;border-radius:14px;
+    background:var(--picker-bg);
+    -webkit-backdrop-filter:blur(24px) saturate(1.6);backdrop-filter:blur(24px) saturate(1.6);
+    box-shadow:0 16px 40px rgba(0,0,0,.22), 0 0 0 1px rgba(0,0,0,.05);
+    transform-origin:top center;
+    animation:pickerIn .17s cubic-bezier(.22,.9,.32,1.1);
+  }
+  @keyframes pickerIn{ from{ opacity:0; transform:translateY(-6px) scale(.96); } to{ opacity:1; transform:translateY(0) scale(1); } }
+  .picker-option{width:100%;display:flex;align-items:center;justify-content:space-between;padding:13px 16px;background:transparent;border:none;border-bottom:.5px solid var(--sep-translucent);font-family:inherit;font-size:15px;color:var(--text);text-align:left;}
   .picker-option:last-child{border-bottom:none;}
   .picker-option.selected{color:var(--blue);font-weight:600;}
-  .picker-option svg{width:16px;height:16px;color:var(--blue);}
-  .field-btn{display:flex;align-items:center;justify-content:flex-end;gap:5px;background:transparent;border:none;font-family:inherit;font-size:15px;color:var(--sub);padding:10px 0;flex:1;min-width:0;}
-  .field-btn span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-  .field-btn svg{width:13px;height:13px;flex-shrink:0;}
-  .picker-option{width:100%;display:flex;align-items:center;justify-content:space-between;padding:14px 16px;background:transparent;border:none;font-family:inherit;font-size:15px;color:var(--text);text-align:left;}
+  .picker-option svg{width:16px;height:16px;color:var(--blue);flex-shrink:0;}
+  .picker-option:active{background:rgba(128,128,128,.14);}
   .hint{font-size:12px;color:var(--sub);padding:0 4px;margin:-8px 0 16px;}
   .hint.warn{color:var(--red);}
   .save-btn{width:100%;padding:14px;border-radius:16px;font-weight:600;font-size:15px;background:var(--blue);color:#fff;border:none;font-family:inherit;}
@@ -187,7 +197,7 @@ let editingAsset = null;
 
 /* ---------- constants ---------- */
 const TX_CATEGORIES = {
-  income: ["Salary","Bonus","Freelance","Other"],
+  income: ["Salary","Bonus","Interest","Freelance","Other"],
   expense: ["Food","Transport","Shopping","Bills","Entertainment","Health","Other"],
 };
 const ASSET_CATEGORIES = ["Bank","Cash"];
@@ -587,7 +597,7 @@ function renderExportSheet(state){
     <div class="sheet-head"><button id="cancelBtn">Cancel</button><h2>Export Month</h2><div style="width:40px;"></div></div>
     <div class="sheet-body">
       <div class="form-group">
-        ${renderPickerRow("exportMonth","Month", monthLabel(selected)+" "+selected.slice(0,4), "", monthOptions, state.openPicker, true)}
+        ${renderPickerTrigger("exportMonth","Month", monthLabel(selected)+" "+selected.slice(0,4), "", state.openPicker, true)}
       </div>
       <div class="grid3">
         <div class="card" style="padding:12px;"><div class="subtle">In</div><div class="bignum" style="font-size:15px;color:var(--green)">${formatRpShort(income)}</div></div>
@@ -599,7 +609,8 @@ function renderExportSheet(state){
     </div>
   `;
   document.getElementById("cancelBtn").onclick = closeSheet;
-  attachPickerHandlers(sheet, state, renderExportSheet);
+  attachPickerToggles(sheet, state, renderExportSheet);
+  mountPickerPopover(state, "exportMonth", monthOptions, renderExportSheet);
   document.getElementById("doExportBtn").onclick = () => { exportMonthCSV(state.selected); closeSheet(); };
 }
 
@@ -749,45 +760,62 @@ function attachContentHandlers(){
 /* ---------- sheets ---------- */
 function closeSheet(){
   document.getElementById("sheetOverlay").style.display = "none";
+  removePickerPopover();
   editingTx = null; editingAsset = null;
 }
-function renderPickerRow(key, label, displayValue, placeholder, options, openKey, last){
+function renderPickerTrigger(key, label, displayValue, placeholder, openKey, last){
   const isOpen = openKey === key;
   const hasValue = !!displayValue;
-  let html = `
-    <button type="button" class="picker-row ${isOpen?'open':''}" data-picker-toggle="${key}" style="${last && !isOpen ? 'border-bottom:none;' : ''}">
+  return `
+    <button type="button" class="picker-row ${isOpen?'open':''}" data-picker-toggle="${key}" style="${last?'border-bottom:none;':''}">
       <label>${label}</label>
       <span class="picker-value" style="${!hasValue?'color:var(--faint);':''}">
         <span>${esc(hasValue?displayValue:placeholder)}</span>
         ${ICONS.chevronDown}
       </span>
     </button>`;
-  if(isOpen){
-    html += `<div class="picker-list">`;
-    options.forEach(opt=>{
-      html += `<button type="button" class="picker-option ${opt.selected?'selected':''}" data-picker-select="${key}" data-picker-value="${esc(opt.value)}">
-        <span>${esc(opt.label)}</span>
-        ${opt.selected?ICONS.check:""}
-      </button>`;
-    });
-    html += `</div>`;
-  }
-  return html;
 }
-function attachPickerHandlers(sheet, state, rerender){
+function removePickerPopover(){
+  document.querySelectorAll(".picker-popover, .picker-scrim").forEach(el => el.remove());
+}
+function mountPickerPopover(state, key, options, rerender){
+  removePickerPopover();
+  if(state.openPicker !== key) return;
+  const trigger = document.querySelector(`[data-picker-toggle="${key}"]`);
+  if(!trigger) return;
+  const rect = trigger.getBoundingClientRect();
+  const available = window.innerHeight - rect.bottom - 20;
+
+  const scrim = document.createElement("div");
+  scrim.className = "picker-scrim";
+  scrim.onclick = () => { state.openPicker = null; rerender(state); };
+
+  const pop = document.createElement("div");
+  pop.className = "picker-popover";
+  pop.style.top = (rect.bottom + 6) + "px";
+  pop.style.left = rect.left + "px";
+  pop.style.width = rect.width + "px";
+  pop.style.maxHeight = Math.max(120, Math.min(260, available)) + "px";
+  pop.innerHTML = options.map(opt => `
+    <button type="button" class="picker-option ${opt.selected?'selected':''}" data-picker-value="${esc(opt.value)}">
+      <span>${esc(opt.label)}</span>${opt.selected?ICONS.check:""}
+    </button>`).join("");
+  pop.querySelectorAll("[data-picker-value]").forEach(btn=>{
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      state.onPick(key, btn.getAttribute("data-picker-value"));
+      state.openPicker = null;
+      rerender(state);
+    };
+  });
+  document.body.appendChild(scrim);
+  document.body.appendChild(pop);
+}
+function attachPickerToggles(sheet, state, rerender){
   sheet.querySelectorAll("[data-picker-toggle]").forEach(btn=>{
     btn.onclick = () => {
       const key = btn.getAttribute("data-picker-toggle");
       state.openPicker = state.openPicker===key ? null : key;
-      rerender(state);
-    };
-  });
-  sheet.querySelectorAll("[data-picker-select]").forEach(btn=>{
-    btn.onclick = () => {
-      const key = btn.getAttribute("data-picker-select");
-      const val = btn.getAttribute("data-picker-value");
-      state.openPicker = null;
-      state.onPick(key, val);
       rerender(state);
     };
   });
@@ -822,26 +850,26 @@ function renderTxSheet(state){
     else if(key==="to") state.toAccountId = val;
   };
 
-  let accountFieldsHtml;
+  let accountFieldsHtml, fromOptions=[], toOptions=[], accOptions=[];
   if(isTransfer){
     const fromAcc = sortedAssets.find(a=>a.id===state.fromAccountId);
     const toAcc = sortedAssets.find(a=>a.id===state.toAccountId);
-    const fromOptions = sortedAssets.map(a=>({ value:a.id, label:`${a.name} (${a.category})`, selected:a.id===state.fromAccountId }));
-    const toOptions = sortedAssets.filter(a=>a.id!==state.fromAccountId).map(a=>({ value:a.id, label:`${a.name} (${a.category})`, selected:a.id===state.toAccountId }));
+    fromOptions = sortedAssets.map(a=>({ value:a.id, label:`${a.name} (${a.category})`, selected:a.id===state.fromAccountId }));
+    toOptions = sortedAssets.filter(a=>a.id!==state.fromAccountId).map(a=>({ value:a.id, label:`${a.name} (${a.category})`, selected:a.id===state.toAccountId }));
     accountFieldsHtml = `
       <div class="form-group">
-        ${renderPickerRow("from","From", fromAcc?`${fromAcc.name} (${fromAcc.category})`:"", "Select account", fromOptions, openKey, false)}
-        ${renderPickerRow("to","To", toAcc?`${toAcc.name} (${toAcc.category})`:"", "Select account", toOptions, openKey, true)}
+        ${renderPickerTrigger("from","From", fromAcc?`${fromAcc.name} (${fromAcc.category})`:"", "Select account", openKey, false)}
+        ${renderPickerTrigger("to","To", toAcc?`${toAcc.name} (${toAcc.category})`:"", "Select account", openKey, true)}
       </div>
       ${sortedAssets.length<2
         ? `<p class="hint warn">You need at least 2 accounts in the Accounts tab to make a transfer.</p>`
         : `<p class="hint"></p>`}
     `;
   } else {
-    const accOptions = sortedAssets.map(a=>({ value:a.id, label:`${a.name} (${a.category})`, selected:a.id===state.accountId }));
+    accOptions = sortedAssets.map(a=>({ value:a.id, label:`${a.name} (${a.category})`, selected:a.id===state.accountId }));
     accountFieldsHtml = `
       <div class="form-group">
-        ${renderPickerRow("account","Account", selected?`${selected.name} (${selected.category})`:"", "Select account", accOptions, openKey, true)}
+        ${renderPickerTrigger("account","Account", selected?`${selected.name} (${selected.category})`:"", "Select account", openKey, true)}
       </div>
       ${sortedAssets.length===0
         ? `<p class="hint warn">Add an account in the Accounts tab first — a transaction must be linked to one.</p>`
@@ -862,7 +890,7 @@ function renderTxSheet(state){
       </div>
       <div class="form-group">
         <div class="form-row"><label>Date</label><input type="date" id="fDate" value="${state.date}"></div>
-        ${isTransfer ? "" : renderPickerRow("category","Category", state.category, "Select category", catOptions, openKey, false)}
+        ${isTransfer ? "" : renderPickerTrigger("category","Category", state.category, "Select category", openKey, false)}
         <div class="form-row"><label>Amount</label><input type="text" inputmode="numeric" id="fAmount" placeholder="0" value="${formatThousands(state.amount)}"></div>
         <div class="form-row" style="border-bottom:none;"><label>Note</label><input type="text" id="fNote" placeholder="Optional" value="${esc(state.note)}"></div>
       </div>
@@ -878,7 +906,9 @@ function renderTxSheet(state){
   document.getElementById("fNote").oninput = e => state.note = e.target.value;
   const amountEl = document.getElementById("fAmount");
   amountEl.oninput = e => { state.amount = onlyDigits(e.target.value); e.target.value = formatThousands(state.amount); };
-  attachPickerHandlers(sheet, state, renderTxSheet);
+  attachPickerToggles(sheet, state, renderTxSheet);
+  const pickerOptionsMap = { category:catOptions, account:accOptions, from:fromOptions, to:toOptions };
+  mountPickerPopover(state, state.openPicker, pickerOptionsMap[state.openPicker]||[], renderTxSheet);
   document.getElementById("saveTxBtn").onclick = () => upsertTx({
     id: editingTx?editingTx.id:undefined, type:state.type, date:state.date,
     category:state.category, amount:state.amount, note:state.note,
@@ -905,7 +935,7 @@ function renderAssetSheet(state){
     <div class="sheet-head"><button id="cancelBtn">Cancel</button><h2>${editingAsset?"Edit Account":"New Account"}</h2><div style="width:40px;"></div></div>
     <div class="sheet-body">
       <div class="form-group">
-        ${renderPickerRow("assetType","Type", state.category, "", typeOptions, openKey, false)}
+        ${renderPickerTrigger("assetType","Type", state.category, "", openKey, false)}
         <div class="form-row"><label>Name</label><input type="text" id="aName" placeholder="${placeholders[state.category]}" value="${esc(state.name)}"></div>
         <div class="form-row"><label>Balance</label><input type="text" inputmode="numeric" id="aAmount" placeholder="0" value="${formatThousands(state.amount)}"></div>
         <div class="form-row" style="border-bottom:none;"><label>Note</label><input type="text" id="aNote" placeholder="Optional" value="${esc(state.note)}"></div>
@@ -917,7 +947,8 @@ function renderAssetSheet(state){
   document.getElementById("aName").oninput = e => state.name = e.target.value;
   document.getElementById("aNote").oninput = e => state.note = e.target.value;
   document.getElementById("aAmount").oninput = e => { state.amount = onlyDigits(e.target.value); e.target.value = formatThousands(state.amount); };
-  attachPickerHandlers(sheet, state, renderAssetSheet);
+  attachPickerToggles(sheet, state, renderAssetSheet);
+  mountPickerPopover(state, "assetType", typeOptions, renderAssetSheet);
   document.getElementById("saveAssetBtn").onclick = () => upsertAsset({ id: editingAsset?editingAsset.id:undefined, category:state.category, name:state.name.trim(), amount:state.amount, note:state.note.trim() });
 }
 
