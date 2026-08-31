@@ -954,6 +954,9 @@ function renderAssetSheet(state){
 
 /* ---------- boot ---------- */
 document.getElementById("restoreFileInput").addEventListener("change", handleRestoreFile);
+document.getElementById("sheetOverlay").addEventListener("click", (e) => {
+  if(e.target === e.currentTarget) closeSheet();
+});
 window.onerror = function(msg, src, line, col, err){
   document.getElementById("content").innerHTML =
     `<div class="card" style="margin-top:16px;"><div style="font-weight:600;margin-bottom:6px;">Something went wrong</div><div class="subtle" style="word-break:break-word;">${esc(msg)} (line ${line})</div></div>`;
